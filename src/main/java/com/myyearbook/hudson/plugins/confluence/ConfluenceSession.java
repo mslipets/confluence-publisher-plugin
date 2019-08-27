@@ -16,7 +16,6 @@ package com.myyearbook.hudson.plugins.confluence;
 import com.atlassian.confluence.api.model.Expansion;
 import com.atlassian.confluence.api.model.content.*;
 import com.atlassian.confluence.api.model.content.id.ContentId;
-import com.atlassian.confluence.api.model.pagination.PageRequest;
 import com.atlassian.confluence.api.model.pagination.PageResponse;
 import com.atlassian.confluence.api.model.people.Person;
 import com.atlassian.confluence.api.service.exceptions.ServiceException;
@@ -36,7 +35,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.rmi.RemoteException;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
@@ -58,6 +56,7 @@ public class ConfluenceSession {
     private final RemoteContentLabelService remoteContentLabelService;
     private final RemoteContentPropertyService contentPropertyService;
     private final RemoteContentService contentService;
+    private final RemoteChildContentService childContentService;
     private final RemoteCQLSearchService cqlSearchService;
     private final RemotePersonService remotePersonService;
     private final RemoteSpaceService spaceService;
@@ -120,6 +119,7 @@ public class ConfluenceSession {
         this.remoteContentLabelService = new RemoteContentLabelServiceImpl(authenticatedWebResourceProvider, executor);
         this.contentPropertyService = new RemoteContentPropertyServiceImpl(authenticatedWebResourceProvider, executor);
         this.contentService = new RemoteContentServiceImpl(authenticatedWebResourceProvider, executor);
+        this.childContentService = new RemoteChildContentServiceImpl(authenticatedWebResourceProvider, executor);
         this.cqlSearchService = new RemoteCQLSearchServiceImpl(authenticatedWebResourceProvider, executor);
         this.remotePersonService = new RemotePersonServiceImpl(authenticatedWebResourceProvider, executor);
         this.spaceService = new RemoteSpaceServiceImpl(authenticatedWebResourceProvider, executor);
@@ -138,40 +138,38 @@ public class ConfluenceSession {
 
     /**
      * Get a PageContent by Page key
-     *
-     * @param pageKey
+     * @param contentId
      * @return {@link Optional<Content>} instance
      */
-    public Optional<Content> getPageContent(String pageKey) throws ServiceException {
+    public Optional<Content> getContent(String contentId) throws ServiceException {
         return contentService.find(allExpasions)
-                .withId(ContentId.of(Long.valueOf(pageKey)))
+                .withId(ContentId.of(Long.valueOf(contentId)))
                 .fetch().claim();
     }
 
     /**
-     * Get a PageContent by Space key and Page title
-     *
-     * @param pageKey
+     * Get a Content by spaceKey and Page title
+     * @param spaceKey
+     * @param pageTitle
      * @return {@link Optional<Content>} instance
      */
-    public Optional<Content> getPageContent(String spacekey, String pageKey) throws ServiceException {
+    public Optional<Content> getContent(String spaceKey, String pageTitle) throws ServiceException {
         return contentService.find(allExpasions)
-                .withSpace(getSpace(spacekey).getOrNull())
-                .withTitle(pageKey)
+                .withSpace(getSpace(spaceKey).getOrNull())
+                .withTitle(pageTitle)
                 .fetch().claim();
     }
 
-    public Content storePage(final Content page) throws ServiceException {
+    public Content createContent(final Content page) throws ServiceException {
         return contentService.create(page).claim();
     }
 
-    public Content updatePage(final Content page) throws ServiceException {
+    public Content updateContent(final Content page) throws ServiceException {
         return contentService.update(page).claim();
     }
 
     /**
      * Get all attachments for a page
-     *
      * @param pageId
      * @return List of {@link Content}
      * @throws ServiceException
@@ -230,52 +228,6 @@ public class ConfluenceSession {
         attachmentService.delete(attachment).claim();
     }
 
-    /**
-     * Sanitize the attached filename, per Confluence restrictions
-     *
-     * @param fileName
-     * @return sanitizedFileName
-     * @throws ServiceException
-     */
-    public static String sanitizeFileName(String fileName) {
-        if (fileName == null) {
-            return null;
-        }
-        return hudson.Util.fixEmptyAndTrim(fileName.replace('+', '_').replace('&', '_'));
-    }
-
-    public static Expansion[] toExpansionsArray(String... expansions) {
-        return Collections2.transform(Arrays.asList(expansions), Expansion.AS_EXPANSION).toArray(new Expansion[expansions.length]);
-    }
-
-    public static PageResponse<Content> contentToPageResponse(List<Content> contentList) {
-        return new PageResponse<Content>() {
-            @Override
-            public List<Content> getResults() {
-                return contentList;
-            }
-
-            @Override
-            public int size() {
-                return contentList.size();
-            }
-
-            @Override
-            public boolean hasMore() {
-                return false;
-            }
-
-            @Override
-            public PageRequest getPageRequest() {
-                return null;
-            }
-
-            @Override
-            public Iterator<Content> iterator() {
-                return contentList.iterator();
-            }
-        };
-    }
 
     /**
      * Add's labels to content, removing duplicates.
@@ -323,4 +275,7 @@ public class ConfluenceSession {
         return remotePersonService.getCurrentUser().claim();
     }
 
+    public static Expansion[] toExpansionsArray(String... expansions) {
+        return Collections2.transform(Arrays.asList(expansions), Expansion.AS_EXPANSION).toArray(new Expansion[expansions.length]);
+    }
 }

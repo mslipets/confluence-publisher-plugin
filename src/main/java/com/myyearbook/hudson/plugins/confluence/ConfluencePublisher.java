@@ -381,7 +381,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
         Content pageContent;
 
         try {
-            pageContent = confluence.getPageContent(spaceName, pageName).orElseThrow(() -> new ServiceException("Page content is NULL"));
+            pageContent = confluence.getContent(spaceName, pageName).orElseThrow(() -> new ServiceException("Page content is NULL"));
         } catch (ServiceException e) {
             // Still shouldn't fail the job, so just dump this to the console and keep going (true).
             log(listener, e.getMessage());
@@ -460,14 +460,14 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
      */
     private Content createPage(ConfluenceSession confluence, String spaceName, String pageName, long parentId)
             throws ServiceException {
-        Content parentContent = confluence.getPageContent(String.valueOf(parentId))
+        Content parentContent = confluence.getContent(String.valueOf(parentId))
                 .orElseThrow(() -> new ServiceException("Can't find Space with Id:" + parentId));
         Content.ContentBuilder newPage = Content.builder();
         newPage.title(pageName);
         newPage.space(spaceName);
         newPage.body(ContentBody.contentBodyBuilder().build());
         newPage.parent(parentContent);
-        return confluence.storePage(newPage.build());
+        return confluence.createContent(newPage.build());
     }
 
     private boolean performWikiReplacements(Run<?, ?> build, FilePath filePath, TaskListener listener,
@@ -500,13 +500,12 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                 .build();
 
         //post updated content.
-        confluence.updatePage(updatedContent);
+        confluence.updateContent(updatedContent);
 
         //Check if remote content is updated.
         Optional<Content> remoteResults =
-                confluence.getPageContent(pageContent.getSpace().getKey(), pageContent.getTitle());
+                confluence.getContent(pageContent.getSpace().getKey(), pageContent.getTitle());
         if (remoteResults.isPresent()) {
-            //isUpdated = remoteResults.get().getChildren().get(ContentType.COMMENT).getResults().containsAll(comments);
             isUpdated = remoteResults.get().getBody().get(ContentRepresentation.STORAGE).getValue().contains(content);
         }
         return isUpdated;
@@ -546,7 +545,6 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                     .id(contentId[0])
                     .container(pageContent.getOptionalParent().get())
                     .title("Re: " + pageContent.getTitle())
-//                .space(pageContent.getSpace())
                     .extension("location", "footer")
                     .status(ContentStatus.CURRENT)
                     .body(ContentBody.contentBodyBuilder()
@@ -554,11 +552,11 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                             .value(editComment)
                             .build())
                     .build();
-            confluence.updatePage(comment);
+            confluence.updateContent(comment);
 
             //Check if remote content is updated.
             Optional<Content> remoteResults =
-                    confluence.getPageContent(pageContent.getSpace().getKey(), pageContent.getTitle());
+                    confluence.getContent(pageContent.getSpace().getKey(), pageContent.getTitle());
             if (remoteResults.isPresent()) {
                 isUpdated = remoteResults.get().getChildren().get(ContentType.COMMENT)
                         .getResults().stream().map(r -> r.getBody().get(ContentRepresentation.STORAGE).getValue())
@@ -566,6 +564,10 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                         .contains(editComment);
             }
             return isUpdated;
+        } else {
+            //Post new comment.
+            //TODO: IMPLEMENT
+
         }
         return true;
     }
@@ -699,7 +701,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
 
             try {
                 ConfluenceSession confluence = site.createSession();
-                Content page = confluence.getPageContent(String.valueOf(parentIdL)).orElseThrow(() -> new ServiceException("Page content is NULL"));
+                Content page = confluence.getContent(String.valueOf(parentIdL)).orElseThrow(() -> new ServiceException("Page content is NULL"));
 
                 if (page != null) {
                     return FormValidation.ok("OK: " + page.getTitle());
@@ -726,7 +728,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
 
             try {
                 ConfluenceSession confluence = site.createSession();
-                Content page = confluence.getPageContent(spaceName, pageName).orElse(null);
+                Content page = confluence.getContent(spaceName, pageName).orElse(null);
 
                 if (page != null) {
                     return FormValidation.ok("OK: " + page.getTitle());

@@ -14,7 +14,6 @@
 package com.myyearbook.hudson.plugins.confluence;
 
 import com.atlassian.confluence.api.model.content.*;
-import com.atlassian.confluence.api.model.content.id.ContentId;
 import com.atlassian.confluence.api.model.pagination.PageResponse;
 import com.atlassian.confluence.api.service.exceptions.ServiceException;
 import com.atlassian.fugue.Option;
@@ -47,6 +46,7 @@ import java.io.IOException;
 import java.net.URLConnection;
 import java.rmi.RemoteException;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public final class ConfluencePublisher extends Notifier implements Saveable, SimpleBuildStep {
@@ -381,7 +381,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
         Content pageContent;
 
         try {
-            pageContent = confluence.getContent(spaceName, pageName).orElseThrow(() -> new ServiceException("Page content is NULL"));
+            pageContent = confluence.getContent(spaceName, pageName, true).orElseThrow(() -> new ServiceException("Page content is NULL"));
         } catch (ServiceException e) {
             // Still shouldn't fail the job, so just dump this to the console and keep going (true).
             log(listener, e.getMessage());
@@ -462,13 +462,14 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
             throws ServiceException {
         Content parentContent = confluence.getContent(String.valueOf(parentId))
                 .orElseThrow(() -> new ServiceException("Can't find Space with Id:" + parentId));
-        Content.ContentBuilder newPage = Content.builder();
-        newPage.title(pageName);
-        newPage.space(spaceName);
-        newPage.body(ContentBody.contentBodyBuilder().build());
-        newPage.parent(parentContent);
+        Content.ContentBuilder newPage = Content.builder()
+                .title(pageName)
+                .space(spaceName)
+                .body(ContentBody.contentBodyBuilder().build())
+                .parent(parentContent);
         return confluence.createContent(newPage.build());
     }
+
 
     private boolean performWikiReplacements(Run<?, ?> build, FilePath filePath, TaskListener listener,
                                             ConfluenceSession confluence,
@@ -476,22 +477,25 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
             throws IOException, InterruptedException {
 
         boolean isUpdated = false;
-
         //Ugly Hack, though required here. DO NOT REMOVE, otherwise  Content.ContentBuilder.build() will fail.
-        pageContent.getChildren().keySet().stream()
-                .filter(k -> k.getValue() == "_links").findFirst().ifPresent(k -> pageContent.getChildren().remove(k));
-        pageContent.getDescendants().keySet().stream()
-                .filter(k -> k.getValue() == "_links").findFirst().ifPresent(k -> pageContent.getDescendants().remove(k));
+        Consumer<Map<ContentType, PageResponse<Content>>> SANITIZE_NESTED_CONTENT_MAP = (m) ->
+                m.entrySet().stream().filter(e -> e.getValue() == null).map(e -> e.getKey())
+                        .collect(Collectors.toList()).stream().forEach(k -> m.remove(k));
+
+        SANITIZE_NESTED_CONTENT_MAP.accept(pageContent.getChildren());
+        SANITIZE_NESTED_CONTENT_MAP.accept(pageContent.getDescendants());
 
         // Get current content and edit.
-        String content = performEdits(build, filePath, listener,
-                pageContent.getBody().get(ContentRepresentation.STORAGE).getValue(),
-                remoteAttachments);
+        String originContent = pageContent.getBody().get(ContentRepresentation.STORAGE).getValue();
+
+        String contentEdited = performEdits(build, filePath, listener, originContent, remoteAttachments);
+        //XHTML -> HTML self closing tag adjustment
+        contentEdited = contentEdited.replaceAll(" /", "/");
 
         // Now set the replacement contentBody
         ContentBody contentBody = ContentBody.contentBodyBuilder()
                 .representation(ContentRepresentation.STORAGE)
-                .value(content)
+                .value(contentEdited)
                 .build();
 
         Content updatedContent = Content.builder(pageContent)
@@ -500,14 +504,15 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                 .build();
 
         //post updated content.
-        confluence.updateContent(updatedContent);
+        Content results = confluence.updateContent(updatedContent);
 
         //Check if remote content is updated.
         Optional<Content> remoteResults =
-                confluence.getContent(pageContent.getSpace().getKey(), pageContent.getTitle());
+                confluence.getContent(pageContent.getSpace().getKey(), pageContent.getTitle(), true);
         if (remoteResults.isPresent()) {
-            isUpdated = remoteResults.get().getBody().get(ContentRepresentation.STORAGE).getValue().contains(content);
+            isUpdated = (remoteResults.get().getVersion().getNumber() == results.getVersion().getNumber()) ? true : false;
         }
+
         return isUpdated;
     }
 
@@ -519,9 +524,8 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                 "Published from Jenkins build: <a href=\"$BUILD_URL\">$BUILD_URL</a>");
 
         Optional<Content> previousComment = Optional.empty();
-        final Version commentVersion[] = new Version[1];
-        final ContentId[] contentId = new ContentId[1];
         List<Content> cl = pageContent.getChildren().get(ContentType.COMMENT).getResults();
+
         if (!cl.isEmpty()) {
             previousComment = cl.stream()
                     .filter(c -> c.getBody().get(ContentRepresentation.STORAGE)
@@ -531,19 +535,12 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
         }
 
         if (previousComment.isPresent()) {
-            contentId[0] = previousComment.get().getId();
-        }
-
-        commentVersion[0] = Optional.ofNullable(previousComment.get().getVersion())
-                .orElseGet(() -> Version.builder().build()).nextBuilder().build();
-
-        if (contentId[0] != null) {
             //Edit comment Content
             Content comment = Content.builder()
                     .type(ContentType.COMMENT)
-                    .version(commentVersion[0])
-                    .id(contentId[0])
-                    .container(pageContent.getOptionalParent().get())
+                    .version(previousComment.get().getVersion().nextBuilder().build())
+                    .id(previousComment.get().getId())
+                    .container(pageContent)
                     .title("Re: " + pageContent.getTitle())
                     .extension("location", "footer")
                     .status(ContentStatus.CURRENT)
@@ -553,23 +550,43 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                             .build())
                     .build();
             confluence.updateContent(comment);
-
-            //Check if remote content is updated.
-            Optional<Content> remoteResults =
-                    confluence.getContent(pageContent.getSpace().getKey(), pageContent.getTitle());
-            if (remoteResults.isPresent()) {
-                isUpdated = remoteResults.get().getChildren().get(ContentType.COMMENT)
-                        .getResults().stream().map(r -> r.getBody().get(ContentRepresentation.STORAGE).getValue())
-                        .collect(Collectors.toList())
-                        .contains(editComment);
-            }
-            return isUpdated;
         } else {
             //Post new comment.
-            //TODO: IMPLEMENT
+            createComment(confluence, pageContent, editComment);
 
         }
-        return true;
+        //Check if remote content is updated.
+        Optional<Content> remoteResults =
+                confluence.getContent(pageContent.getSpace().getKey(), pageContent.getTitle(), true);
+        if (remoteResults.isPresent()) {
+            isUpdated = remoteResults.get().getChildren().get(ContentType.COMMENT)
+                    .getResults().stream().map(r -> r.getBody().get(ContentRepresentation.STORAGE).getValue())
+                    .collect(Collectors.toList())
+                    .contains(editComment);
+        }
+        return isUpdated;
+    }
+
+    /**
+     * Creates a new Comment to Confluence page.
+     *
+     * @param confluence
+     * @param parentContent
+     * @param commentText
+     * @return The resulting comment Content
+     * @throws RemoteException
+     */
+    private Content createComment(ConfluenceSession confluence, Content parentContent, String commentText)
+            throws ServiceException {
+        Content.ContentBuilder newComment = Content.builder()
+                .title("Re: " + parentContent.getTitle())
+                .body(ContentBody.contentBodyBuilder()
+                        .representation(ContentRepresentation.STORAGE)
+                        .value(commentText)
+                        .build())
+                .container(parentContent)
+                .type(ContentType.COMMENT);
+        return confluence.createContent(newComment.build());
     }
 
     private String performEdits(final Run<?, ?> build, FilePath filePath, final TaskListener listener,
@@ -728,7 +745,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
 
             try {
                 ConfluenceSession confluence = site.createSession();
-                Content page = confluence.getContent(spaceName, pageName).orElse(null);
+                Content page = confluence.getContent(spaceName, pageName, false).orElse(null);
 
                 if (page != null) {
                     return FormValidation.ok("OK: " + page.getTitle());

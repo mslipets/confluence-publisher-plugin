@@ -14,7 +14,10 @@
 package com.myyearbook.hudson.plugins.confluence;
 
 import com.atlassian.confluence.api.model.Expansion;
-import com.atlassian.confluence.api.model.content.*;
+import com.atlassian.confluence.api.model.content.AttachmentUpload;
+import com.atlassian.confluence.api.model.content.Content;
+import com.atlassian.confluence.api.model.content.Label;
+import com.atlassian.confluence.api.model.content.Space;
 import com.atlassian.confluence.api.model.content.id.ContentId;
 import com.atlassian.confluence.api.model.pagination.PageResponse;
 import com.atlassian.confluence.api.model.people.Person;
@@ -63,7 +66,7 @@ public class ConfluenceSession {
 
     private Logger log = Logger.getLogger(ConfluenceSession.class.getName());
     private Label.Prefix labelPrefix = Label.Prefix.global;
-    private static Expansion[] allExpasions = toExpansionsArray(
+    private static Expansion[] expansions = toExpansionsArray(
             Content.Expansions.ANCESTORS,
             Content.Expansions.BODY,
             Content.Expansions.CHILDREN,
@@ -80,32 +83,18 @@ public class ConfluenceSession {
             "body.storage",
             "children.comment.body.storage",
             "children.comment.version",
-            "extensions",
-            "childTypes.all",
-            "children.attachment",
-            "children.comment",
-            "children.page",
             "metadata.labels",
-            "container",
             "metadata.currentuser",
             "metadata.properties",
             "metadata.labels",
-            "operations",
-            "restrictions.read.restrictions.user",
-            "restrictions.read.restrictions.group",
-            "restrictions.update.restrictions.user",
-            "restrictions.update.restrictions.group",
-            "history",
             "history.lastUpdated",
             "history.previousVersion",
             "history.contributors",
             "history.nextVersion",
-            "ancestors",
-            "version",
-            "descendants.page",
-            "descendants.attachment",
-            "descendants.comment",
-            "restrictions"
+            "restrictions.read.restrictions.user",
+            "restrictions.read.restrictions.group",
+            "restrictions.update.restrictions.user",
+            "restrictions.update.restrictions.group"
     );
 
     /**
@@ -142,7 +131,7 @@ public class ConfluenceSession {
      * @return {@link Optional<Content>} instance
      */
     public Optional<Content> getContent(String contentId) throws ServiceException {
-        return contentService.find(allExpasions)
+        return contentService.find()
                 .withId(ContentId.of(Long.valueOf(contentId)))
                 .fetch().claim();
     }
@@ -153,19 +142,19 @@ public class ConfluenceSession {
      * @param pageTitle
      * @return {@link Optional<Content>} instance
      */
-    public Optional<Content> getContent(String spaceKey, String pageTitle) throws ServiceException {
-        return contentService.find(allExpasions)
+    public Optional<Content> getContent(String spaceKey, String pageTitle, boolean expanded) throws ServiceException {
+        return contentService.find(expanded ? expansions : null)
                 .withSpace(getSpace(spaceKey).getOrNull())
                 .withTitle(pageTitle)
                 .fetch().claim();
     }
 
-    public Content createContent(final Content page) throws ServiceException {
-        return contentService.create(page).claim();
+    public Content createContent(final Content content) throws ServiceException {
+        return contentService.create(content).claim();
     }
 
-    public Content updateContent(final Content page) throws ServiceException {
-        return contentService.update(page).claim();
+    public Content updateContent(final Content content) throws ServiceException {
+        return contentService.update(content).claim();
     }
 
     /**

@@ -48,7 +48,7 @@
     <artifactId>confluence-publisher</artifactId>
     <name>Confluence Publisher</name>
     <description>Publish build artifacts to an Atlassian Confluence wiki</description>
-    <version>2.0.4</version>
+    <version>2.0.5-SNAPSHOT</version>
     <packaging>hpi</packaging>
     <url>http://wiki.jenkins-ci.org/display/JENKINS/Confluence+Publisher+Plugin</url>
 

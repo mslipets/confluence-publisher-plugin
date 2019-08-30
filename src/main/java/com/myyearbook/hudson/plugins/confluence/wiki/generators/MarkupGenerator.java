@@ -103,7 +103,8 @@ public abstract class MarkupGenerator implements Describable<MarkupGenerator>, E
 		Content attachment = remoteAttachments.get(i);
 			try {
 				String url = attachment.getLinks().get(LinkType.DOWNLOAD).getPath();
-				String href = url.substring(url.indexOf(new URI(url).getPath()));
+                String href = url.substring(url.indexOf(new URI(url).getPath()))
+                        .replaceAll("&", "&amp;");
 				result = result.replace("$LINK["+i+"]", href);
 			} catch (URISyntaxException e) {
 	            e.printStackTrace(listener.getLogger());

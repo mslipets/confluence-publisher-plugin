@@ -500,6 +500,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
 
         Content updatedContent = Content.builder(pageContent)
                 .version(pageContent.getVersion().nextBuilder().build())
+                .ancestors(pageContent.getAncestors())
                 .body(contentBody)
                 .build();
 

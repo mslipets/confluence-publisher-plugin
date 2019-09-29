@@ -464,6 +464,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                 .orElseThrow(() -> new ServiceException("Can't find Space with Id:" + parentId));
         Content.ContentBuilder newPage = Content.builder()
                 .title(pageName)
+                .type(ContentType.PAGE)
                 .space(spaceName)
                 .body(ContentBody.contentBodyBuilder().build())
                 .parent(parentContent);

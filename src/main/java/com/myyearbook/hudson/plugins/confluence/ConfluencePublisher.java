@@ -526,7 +526,11 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                 "Published from Jenkins build: <a href=\"$BUILD_URL\">$BUILD_URL</a>");
 
         Optional<Content> previousComment = Optional.empty();
-        List<Content> cl = pageContent.getChildren().get(ContentType.COMMENT).getResults();
+        List<Content> cl = new ArrayList<>();
+
+        Optional.ofNullable(pageContent.getChildren()).ifPresent(children -> {
+            cl.addAll(children.get(ContentType.COMMENT).getResults());
+        });
 
         if (!cl.isEmpty()) {
             previousComment = cl.stream()

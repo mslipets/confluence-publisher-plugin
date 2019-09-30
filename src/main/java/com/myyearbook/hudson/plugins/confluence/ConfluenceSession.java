@@ -131,7 +131,7 @@ public class ConfluenceSession {
      * @return {@link Optional<Content>} instance
      */
     public Optional<Content> getContent(String contentId) throws ServiceException {
-        return contentService.find()
+        return contentService.find(expansions)
                 .withId(ContentId.of(Long.valueOf(contentId)))
                 .fetch().claim();
     }

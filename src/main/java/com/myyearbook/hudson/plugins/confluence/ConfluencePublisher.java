@@ -369,6 +369,8 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
         String pageName = this.pageName;
         long parentId = this.parentId;
 
+        log(listener, "ParentId: " + parentId);
+
         try {
             spaceName = build.getEnvironment(listener).expand(spaceName);
             pageName = build.getEnvironment(listener).expand(pageName);
@@ -381,7 +383,8 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
         Content pageContent;
 
         try {
-            pageContent = confluence.getContent(spaceName, pageName, true).orElseThrow(() -> new ServiceException("Page content is NULL"));
+            String spaceAndPageNames = String.format("%s/%s", spaceName, pageName);
+            pageContent = confluence.getContent(spaceName, pageName, true).orElseThrow(() -> new ServiceException(String.format("Page at \"%s\" not found!", spaceAndPageNames)));
         } catch (ServiceException e) {
             // Still shouldn't fail the job, so just dump this to the console and keep going (true).
             log(listener, e.getMessage());
@@ -461,7 +464,7 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
     private Content createPage(ConfluenceSession confluence, String spaceName, String pageName, long parentId)
             throws ServiceException {
         Content parentContent = confluence.getContent(String.valueOf(parentId))
-                .orElseThrow(() -> new ServiceException("Can't find Space with Id:" + parentId));
+                .orElseThrow(() -> new ServiceException("Can't find parent content with Id:" + parentId));
         Content.ContentBuilder newPage = Content.builder()
                 .title(pageName)
                 .type(ContentType.PAGE)
@@ -498,11 +501,11 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
                 .representation(ContentRepresentation.STORAGE)
                 .value(contentEdited)
                 .build();
-
+        List<Content> ancestors = pageContent.getAncestors();
         Content updatedContent = Content.builder(pageContent)
                 .version(pageContent.getVersion().nextBuilder().build())
-                .ancestors(pageContent.getAncestors())
                 .body(contentBody)
+                .parent(ancestors.get(ancestors.size() - 1))
                 .build();
 
         //post updated content.
@@ -528,9 +531,13 @@ public final class ConfluencePublisher extends Notifier implements Saveable, Sim
         Optional<Content> previousComment = Optional.empty();
         List<Content> cl = new ArrayList<>();
 
-        Optional.ofNullable(pageContent.getChildren()).ifPresent(children -> {
-            cl.addAll(children.get(ContentType.COMMENT).getResults());
-        });
+        Optional.ofNullable(pageContent.getChildren()).ifPresent(cn ->
+                Optional.ofNullable(cn.get(ContentType.COMMENT)).ifPresent(cm ->
+                        Optional.ofNullable(cm.getResults()).ifPresent(lc ->
+                                cl.addAll(lc)
+                        )
+                )
+        );
 
         if (!cl.isEmpty()) {
             previousComment = cl.stream()
